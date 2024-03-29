@@ -1,0 +1,9 @@
+tushare
+mplfinance
+prettytable
+pandas
+# torch
+# 注意，altair_viewer只能支持到altair4.0版本
+altair==4.2.2
+altair_viewer==0.4.0
+vl-convert-python==1.2.0
