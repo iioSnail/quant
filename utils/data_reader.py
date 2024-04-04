@@ -3,6 +3,8 @@ import sys
 from pathlib import Path
 from typing import Callable
 
+from config import tushare_token
+
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[1]
 
@@ -175,7 +177,7 @@ def remove_pin_memory():
 
 
 class TuShareDataReader(object):
-    token = ""  # FIXME
+    token = tushare_token
     ts.set_token(token)
 
     pro = ts.pro_api()
@@ -1042,32 +1044,40 @@ class TuShareDataReader(object):
                                    **kwargs,
                                    )
 
+    @staticmethod
+    def stk_limit_dtype():
+        return {
+            "trade_date": str,
+            "up_limit": float,
+            "down_limit": float,
+        }
+
     @pin_memory(is_obj=True, obj_fields=('stock_code', 'start_date', 'end_date',))
-    def get_stk_limit(self) -> DataFrame:
+    def get_stk_limit(self, *args, **kwargs) -> DataFrame:
         """
         获取涨跌停价格
         """
+        dtype = TuShareDataReader.daily_dtype()
+        table_name = f"skt_limit_{self.stock_code}"
 
-        os.makedirs(TuShareDataReader.root_dir / 'stk_limit', exist_ok=True)
-        cache_file = TuShareDataReader.root_dir / 'stk_limit' / ('%s.csv' % self.stock_code)
-
-        # end_date取上一个交易日
-        end_date = TuShareDataReader.get_last_trade_date(self.end_date)
-
-        data = None
-        if os.path.exists(cache_file):
-            # todo
-            data = pd.read_csv(cache_file, index_col='trade_date', parse_dates=['trade_date'])
-
-        if data is None or date_utils.compare_to(data.index[-1].strftime('%Y-%m-%d'), end_date) < 0:
-            # 获取全部数据；该接口一次仅能返回5800条数据，这里也只取这么多，够用了。
-            data = self.pro.stk_limit(ts_code=self.ts_code)
+        def req_func(req_start_date, req_end_date):
+            resp_data = self.pro.stk_limit(ts_code=self.ts_code)
             print(f"获取涨跌停价格，ts_code: {self.ts_code}")
-            data = set_trade_date_as_index(data)
+            resp_data = set_trade_date_as_index(resp_data)
 
-            data.to_csv(cache_file)
+            if 'ts_code' in resp_data.columns:
+                del resp_data['ts_code']
 
-        return data.loc[self.start_date:end_date]
+            return resp_data
+
+        data = self._get_something(table_name=table_name,
+                                   dtype=dtype,
+                                   req_func=req_func,
+                                   call_method='stk_limit',
+                                   *args,
+                                   **kwargs
+                                   )
+        return data
 
     def _get_cyq_by_month(self, month: str):
         """
