@@ -175,7 +175,7 @@ def remove_pin_memory():
 
     pin_memory_cache = dict()
 
-
+# fixme 新代码已迁移至data_reader包。
 class TuShareDataReader(object):
     token = tushare_token
     ts.set_token(token)
@@ -581,6 +581,8 @@ class TuShareDataReader(object):
                        end_date: str = None,  # 结束日期。若不传，则使用self.end_date
                        request=True,  # 是否请求tushare服务器获取最新数据。在某些场景下，不读取最新数据
                        call_method=None,  # 哪个方法调用
+                       sort_by=None,  # 依据哪一列对返回结果进行排序。Sort the return data by some columns.
+                       ascending=True,  # sort_by的是否正序字段。The parameter of `sort_by`.
                        *args, **kwargs):
         """
         对`get_daily`、`basic_daily`等每日数据的共用代码抽象
@@ -654,6 +656,9 @@ class TuShareDataReader(object):
             data = data[(start_date <= data['trade_date']) & (data['trade_date'] <= end_date)]
         else:
             data = data.loc[start_date:end_date]
+
+        if sort_by is not None:
+            data = data.sort_values(by=sort_by, ascending=ascending)
 
         return data
 
@@ -989,6 +994,8 @@ class TuShareDataReader(object):
                                    end_date=end_date,
                                    request=request,
                                    call_method='income',
+                                   sort_by='trade_date',
+                                   ascending=False,
                                    *args,
                                    **kwargs
                                    )
@@ -1190,6 +1197,8 @@ class TuShareDataReader(object):
                                    end_date=end_date,
                                    request=request,
                                    call_method='balance_sheet',
+                                   sort_by='trade_date',
+                                   ascending=False,
                                    *args,
                                    **kwargs
                                    )

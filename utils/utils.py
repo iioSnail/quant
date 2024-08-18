@@ -1,8 +1,10 @@
 import pickle
 import time
 
+import numpy as np
 import pandas as pd
 from pandas import DataFrame
+from pandas.api.types import is_number
 
 
 def save_obj(obj, filepath):
@@ -126,10 +128,20 @@ def is_null(obj):
     if hasattr(obj, '__len__'):
         return len(obj) <= 0
 
-    if pd.isnull(obj):
-        return True
+    if is_number(obj):
+        return pd.isnull(obj)
 
     raise RuntimeError("不支持的obj类型：" + str(type(obj)))
+
+
+def null_to_0(obj):
+    """
+    Check if the obj is null, if it is, then return 0.
+    """
+    if is_null(obj):
+        return 0
+
+    return obj
 
 
 def equals(*args):
