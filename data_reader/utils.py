@@ -1,16 +1,13 @@
 import sys
 from pathlib import Path
 
+import pandas as pd
 from pandas import DataFrame
-
-from data_reader.base import DataReader
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[1]
 
 sys.path.insert(0, str(ROOT))
-
-import pandas as pd
 
 pin_memory_cache = dict()
 use_pin_memory = False  # 是否使用pin_memory，全局配置
@@ -35,18 +32,6 @@ def set_trade_date_as_index(data: DataFrame, format='%Y%m%d'):
     data = data.set_index('trade_date')
 
     return data
-
-
-def is_trading_day(date: str):
-    """
-    判断date是否为交易日。
-    例如：
-    2023-11-19为False（因为是周日）
-    2023-11-20为Ture
-    """
-    data = DataReader.get_trade_cal(date, date)
-
-    return data.iloc[0]['is_open'] == 1 or data.iloc[0]['is_open'] == "1"
 
 
 def drop_duplicates_by_index(data: DataFrame, resp_data: DataFrame):

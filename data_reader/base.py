@@ -385,3 +385,15 @@ class DataReader(object):
                                   *args,
                                   **kwargs
                                   )
+
+    @staticmethod
+    def is_trading_day(date: str):
+        """
+        判断date是否为交易日。
+        例如：
+        2023-11-19为False（因为是周日）
+        2023-11-20为Ture
+        """
+        data = DataReader.get_trade_cal(date, date)
+
+        return data.iloc[0]['is_open'] == 1 or data.iloc[0]['is_open'] == "1"
