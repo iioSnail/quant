@@ -18,6 +18,10 @@ import altair as alt
 import altair_viewer
 import vl_convert as vlc
 
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from datetime import datetime
+
 from utils.utils import save_obj, load_obj, remove_pd_percent, write_txt
 from utils.date_utils import get_now
 
@@ -246,6 +250,58 @@ def plot_analysis_sample_distribution(counters, root_dir: Path, *args, **kwargs)
         altair_save(chart, chart_dir / f"sample_factor_distribution_{counter['future_day']}.png")
 
     time.sleep(10)
+
+def plot_multiple_lines(dates, data_sets, labels, title="Line Chart", ylabel="Number", xlabel="Date"):
+    """
+    Plot a line chart with multiple lines.
+
+    Parameters:
+    - dates: List of dates for the x-axis (should be the same for all lines)
+    - data_sets: List of lists, where each sublist contains the data points (y-axis) for a specific line
+    - labels: List of labels for each line
+    - title: Title of the chart (default "Line Chart")
+    - ylabel: Label for the y-axis (default "Number")
+    - xlabel: Label for the x-axis (default "Date")
+
+    # Example usage:
+    ```
+    dates = ["2023-08-01", "2023-08-08", "2023-08-15", "2023-08-22", "2023-08-29"]
+    data_set_1 = [100, 150, 130, 170, 160]
+    data_set_2 = [90, 140, 120, 180, 150]
+    data_set_3 = [80, 130, 110, 160, 140]
+    data_sets = [data_set_1, data_set_2, data_set_3]
+    labels = ["Dataset 1", "Dataset 2", "Dataset 3"]
+
+    plot_multiple_lines(dates, data_sets, labels, title="Multiple Line Chart", ylabel="Value", xlabel="Date")
+    ```
+    """
+
+    # Convert date strings to datetime objects if necessary
+    if isinstance(dates[0], str):
+        dates = [datetime.strptime(date, "%Y-%m-%d") for date in dates]
+
+    plt.figure(figsize=(10, 6))
+
+    # Plot each data set
+    for data, label in zip(data_sets, labels):
+        plt.plot(dates, data, label=label)
+
+    # Formatting the x-axis for dates
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+    plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=7))  # Set interval to 7 days
+
+    plt.gcf().autofmt_xdate()  # Rotate date labels
+
+    # Add labels and title
+    plt.title(title)
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+
+    # Add a legend
+    plt.legend()
+
+    # Display the chart
+    plt.show()
 
 
 if __name__ == '__main__':

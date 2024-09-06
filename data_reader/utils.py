@@ -58,6 +58,21 @@ def convert_alias_to_ts_code(ts_code: str):
 
     return ts_code
 
+def fill_zero_to_empty_str(data: DataFrame, dtype: dict, fill_value=0.0):
+    """
+    If the real column has a empty string, the method will fill it with zero.
+    """
+    for key in dtype.keys():
+        if key not in data.columns:
+            continue
+
+        if dtype[key] not in (float, int):
+            continue
+
+        data[key] = data[key].apply(pd.to_numeric, errors='coerce').fillna(fill_value)
+
+    return data
+
 
 def pin_memory(is_obj=False, obj_fields=()):
     """

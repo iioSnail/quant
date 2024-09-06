@@ -5,10 +5,11 @@ Global index. For example: NASDAQ index.
 import os
 import json
 
+import numpy as np
 import pandas as pd
 
 from data_reader.base import DataReader
-from data_reader.utils import pin_memory, set_trade_date_as_index
+from data_reader.utils import pin_memory, set_trade_date_as_index, fill_zero_to_empty_str
 from utils.log_utils import print_verbose
 from utils.utils import is_null
 
@@ -90,6 +91,7 @@ class IndexGlobalDataReader(DataReader):
 
         resp_data = resp_data[list(self.dtype().keys())]
         resp_data = set_trade_date_as_index(resp_data, format='%Y-%m-%d')
+        resp_data = fill_zero_to_empty_str(resp_data, dtype=self.dtype())
 
         return resp_data
 

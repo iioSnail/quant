@@ -5,6 +5,7 @@
         该模块是按照设置好的条件，筛选当天（即最后一个交易日）符合条件的股票。
 """
 
+import pandas as pd
 from pandas import Series
 from tqdm import tqdm
 

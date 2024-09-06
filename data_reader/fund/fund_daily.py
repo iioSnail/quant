@@ -3,7 +3,6 @@ import pandas as pd
 from data_reader.base import DataReader
 from data_reader.utils import pin_memory, set_trade_date_as_index
 from utils.log_utils import print_verbose
-from utils.utils import is_null
 
 
 class FundDailyDataReader(DataReader):
