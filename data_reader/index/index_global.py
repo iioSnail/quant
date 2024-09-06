@@ -25,12 +25,14 @@ data_json = ""
 
 class IndexGlobalDataReader(DataReader):
 
+    data_name = "index_global"
+
     def __init__(self, stock_code: str, json_file="./baidu_json.json"):
         """
         Common Index:
         纳斯达克指数:
         """
-        super().__init__(stock_code, is_index=True)
+        super().__init__(stock_code, data_type='index')
         self.stock_code = stock_code
         self.stock_code = self._extract_index()
 
@@ -38,7 +40,7 @@ class IndexGlobalDataReader(DataReader):
 
     @pin_memory(is_obj=True, obj_fields=('stock_code', 'start_date', 'end_date',))
     def get_data(self, start_date: str = None, end_date: str = None, request=True, *args, **kwargs):
-        table_name = f"index_global_{self.stock_code}"
+        table_name = f"{self.data_name}_{self.stock_code}"
 
         return self.get_something(table_name=table_name,
                                   dtype=self.dtype(),
@@ -46,7 +48,7 @@ class IndexGlobalDataReader(DataReader):
                                   start_date=start_date,
                                   end_date=end_date,
                                   request=request,
-                                  call_method='cashflow',
+                                  call_method=self.data_name,
                                   *args,
                                   **kwargs
                                   )

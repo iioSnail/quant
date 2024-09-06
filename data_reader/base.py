@@ -5,8 +5,6 @@ from typing import Callable
 
 from pandas import DataFrame, Series
 
-from utils.utils import is_null
-
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[1]
 
@@ -20,6 +18,7 @@ from utils.date_utils import get_yesterday, get_today, date_add
 from utils.db import SqliteDB
 from utils.log_utils import print_verbose
 from data_reader.utils import convert_alias_to_ts_code, set_trade_date_as_index, pin_memory, drop_duplicates_by_index
+from utils.utils import is_null
 
 pin_memory_cache = dict()
 use_pin_memory = False  # 是否使用pin_memory，全局配置
@@ -38,22 +37,31 @@ class DataReader(object):
 
     stock_list = None
 
-    def __init__(self, stock_code: str, is_index=False):
+    def __init__(self, stock_code: str, data_type='stock'):
         super(DataReader, self).__init__()
 
         self.root_dir = DataReader.root_dir
         self.pro = DataReader.pro
 
         self.stock_code = stock_code
-        self.is_index = is_index
+        self.data_type = data_type
 
-        if not is_index:
+        if data_type == 'stock':
             self.stock_properties = self.get_stock_properties()
-        else:
+        elif data_type == 'fund':
+            self.stock_properties = self.get_fund_properties()
+        elif data_type == 'index':
             self.stock_properties = {
                 'stock_code': stock_code,
                 'ts_code': convert_alias_to_ts_code(stock_code),
             }
+        elif data_type == "basic":
+            self.stock_properties = {
+                'stock_code': "",
+                'ts_code': ""
+            }
+        else:
+            raise RuntimeError(f"未知的数据类型: {data_type}")
 
         self.ts_code = self.stock_properties['ts_code']
         self.start_date = '2010-01-01'
@@ -168,6 +176,15 @@ class DataReader(object):
 
         return data.loc[self.stock_code]
 
+    def get_fund_properties(self) -> Series:
+        from data_reader.fund.fund_basic import FundBasicDataReader
+        data = FundBasicDataReader().get_data()
+
+        if self.stock_code not in data.index:
+            raise NameError(f'未找到基金代码"{self.stock_code}"，请确认是否填写正确！')
+
+        return data.loc[self.stock_code]
+
     @staticmethod
     @pin_memory()
     def get_stock_list(market='all',  # 市场类别 （主板/创业板/科创板/CDR/北交所）
@@ -249,6 +266,7 @@ class DataReader(object):
                       call_method=None,  # 哪个方法调用
                       sort_by=None,  # 依据哪一列对返回结果进行排序。Sort the return data by some columns.
                       ascending=True,  # sort_by的是否正序字段。The parameter of `sort_by`.
+                      index_col=None,
                       *args, **kwargs):
         """
         对`get_daily`、`basic_daily`等每日数据的共用代码抽象
@@ -265,6 +283,8 @@ class DataReader(object):
         if call_method == 'cyq':
             data = self.db.read_data(table_name, start_date, end_date=None, dtype=dtype, index_col='index')
             last_data_date = '2010-01-01' if is_null(data) else data['trade_date'].max()
+        elif self.data_type == 'basic':
+            return self.db.read_data(table_name, start_date=None, end_date=None, dtype=dtype, index_col=index_col)
         else:
             data = self.db.read_data(table_name, start_date, end_date=None, dtype=dtype)
             last_data_date = '2010-01-01' if is_null(data) else data.index[-1]

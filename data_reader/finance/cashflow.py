@@ -13,19 +13,21 @@ from utils.utils import is_null
 
 class CashflowDataReader(DataReader):
 
+    data_name = "cashflow"
+
     def __init__(self, stock_code: str):
         super().__init__(stock_code)
         self.stock_code = stock_code
 
     @pin_memory(is_obj=True, obj_fields=('stock_code', 'start_date', 'end_date',))
     def get_data(self, start_date: str = None, end_date: str = None, request=True, *args, **kwargs):
-        table_name = f"cashflow_{self.stock_code}"
+        table_name = f"{self.data_name}_{self.stock_code}"
 
         def req_func(req_start_date, req_end_date):
             if req_start_date is None:
                 req_start_date = '19980101'
 
-            print_verbose(f"获取cashflow数据, ts_code：{self.ts_code}")
+            print_verbose(f"获取{self.data_name}数据, ts_code：{self.ts_code}")
             resp_data = self.pro.cashflow(ts_code=self.ts_code, start_date=req_start_date)
 
             data_list = []
@@ -52,7 +54,7 @@ class CashflowDataReader(DataReader):
                                   start_date=start_date,
                                   end_date=end_date,
                                   request=request,
-                                  call_method='cashflow',
+                                  call_method=self.data_name,
                                   *args,
                                   **kwargs
                                   )
