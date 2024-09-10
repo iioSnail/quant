@@ -251,7 +251,7 @@ def plot_analysis_sample_distribution(counters, root_dir: Path, *args, **kwargs)
 
     time.sleep(10)
 
-def plot_multiple_lines(dates, data_sets, labels, title="Line Chart", ylabel="Number", xlabel="Date"):
+def plot_multiple_lines(dates, data_sets, labels, title="Line Chart", ylabel="Number", xlabel="Date", day_interval=None):
     """
     Plot a line chart with multiple lines.
 
@@ -276,6 +276,9 @@ def plot_multiple_lines(dates, data_sets, labels, title="Line Chart", ylabel="Nu
     ```
     """
 
+    if day_interval is None:
+        day_interval = int(len(dates) / 30)
+
     # Convert date strings to datetime objects if necessary
     if isinstance(dates[0], str):
         dates = [datetime.strptime(date, "%Y-%m-%d") for date in dates]
@@ -291,6 +294,9 @@ def plot_multiple_lines(dates, data_sets, labels, title="Line Chart", ylabel="Nu
     plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=7))  # Set interval to 7 days
 
     plt.gcf().autofmt_xdate()  # Rotate date labels
+
+    # Change the interval to display every nth tick (e.g., every 14 days)
+    plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=day_interval))  # Show every 14th day
 
     # Add labels and title
     plt.title(title)

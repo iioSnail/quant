@@ -37,7 +37,7 @@ class DataReader(object):
 
     stock_list = None
 
-    def __init__(self, stock_code: str, data_type='stock'):
+    def __init__(self, stock_code: str, data_type='stock', db_name=None):
         super(DataReader, self).__init__()
 
         self.root_dir = DataReader.root_dir
@@ -60,6 +60,11 @@ class DataReader(object):
                 'stock_code': "",
                 'ts_code': ""
             }
+        elif data_type == "extra":
+            self.stock_properties = {
+                'stock_code': "",
+                'ts_code': ""
+            }
         else:
             raise RuntimeError(f"未知的数据类型: {data_type}")
 
@@ -67,7 +72,10 @@ class DataReader(object):
         self.start_date = '2010-01-01'
         self.end_date = get_yesterday()
 
-        self.db = DataReader.db
+        if db_name is None:
+            self.db = DataReader.db
+        else:
+            self.db = SqliteDB(db_name)
 
     def set_date_range(self, start_date: str, end_date: str):
         self.start_date = start_date
@@ -188,7 +196,7 @@ class DataReader(object):
     @staticmethod
     @pin_memory()
     def get_stock_list(market='all',  # 市场类别 （主板/创业板/科创板/CDR/北交所）
-                       list_status='all',  # 上市状态 L上市 D退市 P暂停上市，默认是L
+                       list_status='all',  # 上市状态 L上市 D退市 P暂停上市
                        exchange='all',  # 交易所 SSE上交所 SZSE深交所 BSE北交所
                        update=False,  # 为True时，删除原表重新获取
                        only_stock_code=False,  # 是否只返回stock_code. 若为True，则返回list
@@ -291,11 +299,11 @@ class DataReader(object):
 
         def req_data(data):
             # 数据不为空的话，查一下数据的开盘情况，看看有没有必要拉远程接口
-            if not is_null(data) and call_method != 'daily_open':
+            if not is_null(data) and self.data_type == 'stock' and call_method != 'daily_open':
                 daily_open_data = self.get_daily_open(last_data_date, end_date, *args, **kwargs)
                 if daily_open_data['is_open'].sum() <= 1:
                     # 无需请求远程接口，因为该日期后面本身也没有数据
-                    return
+                    return data
 
             req_start_date = None
             if data is not None and len(data) > 0:
@@ -331,7 +339,7 @@ class DataReader(object):
             return data
 
         if request and (is_null(data) or date_utils.compare_to(last_data_date, end_date) < 0):
-            # 获取数据的开盘情况
+            # 数据库里的数据不是最新数据，重新获取数据
             data = req_data(data)
 
         # 表中没有读到数据，则从接口获取数据

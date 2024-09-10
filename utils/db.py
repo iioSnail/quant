@@ -26,6 +26,9 @@ class SqliteDB(object):
     # db_dir = Path(r"E:/data")
 
     def __init__(self, db_name='tushare.sqlite'):
+        if not db_name.endswith(".sqlite"):
+            db_name += ".sqlite"
+
         self.con = sqlite3.connect(str(SqliteDB.db_dir / db_name))
 
         self.exist_tables = set()  # 记录哪些表已经存在
