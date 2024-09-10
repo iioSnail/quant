@@ -40,7 +40,9 @@ class IndexGlobalDataReader(DataReader):
         self.json_file = json_file
 
     @pin_memory(is_obj=True, obj_fields=('stock_code', 'start_date', 'end_date',))
-    def get_data(self, start_date: str = None, end_date: str = None, request=True, *args, **kwargs):
+    def get_data(self, start_date: str = None, end_date: str = None,
+                 request=False,  # If you want to initially build data, please change the arg into True.
+                 *args, **kwargs):
         table_name = f"{self.data_name}_{self.stock_code}"
 
         return self.get_something(table_name=table_name,
