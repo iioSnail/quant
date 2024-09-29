@@ -10,8 +10,8 @@ from utils import date_utils
 from utils.log_utils import print_verbose
 
 
-class DailyDataReader(DataReader):
-    data_name = "daily"
+class DailyBasicDataReader(DataReader):
+    data_name = "daily_basic"
 
     def __init__(self, stock_code: str):
         super().__init__(stock_code, data_type='stock', db_name=db_name)
@@ -26,10 +26,12 @@ class DailyDataReader(DataReader):
                 req_start_date = '20100101'
 
             print_verbose(f"获取{self.data_name}数据, ts_code：{self.ts_code}")
-            resp_data = self.pro.daily(ts_code=self.ts_code,
-                                       start_date=req_start_date)
+            resp_data = self.pro.daily_basic(ts_code=self.ts_code,
+                                             start_date=req_start_date,
+                                             fields=','.join(self.dtype().keys()),
+                                             )
+
             resp_data = set_trade_date_as_index(resp_data)
-            time.sleep(60 / 500 * 2)
 
             return resp_data
 
@@ -46,16 +48,24 @@ class DailyDataReader(DataReader):
 
     def dtype(self):
         return {
-            "trade_date": str,
-            "open": float,
-            "high": float,
-            "low": float,
-            "close": float,
-            "pre_close": float,
-            "change": float,
-            "pct_chg": float,
-            "vol": float,
-            "amount": float,
+            "ts_code": str,
+            "trade_date": str,  # 交易日期
+            "close": float,  # 当日收盘价
+            "turnover_rate": float,  # 换手率（%）
+            "turnover_rate_f": float,  # 换手率（自由流通股）
+            "volume_ratio": float,  # 量比
+            "pe": float,  # 市盈率（总市值/净利润， 亏损的PE为空）
+            "pe_ttm": float,  # 市盈率（TTM，亏损的PE为空）
+            "pb": float,  # 市净率（总市值/净资产）
+            "ps": float,  # 市销率
+            "ps_ttm": float,  # 市销率（TTM）
+            "dv_ratio": float,  # 股息率 （%）
+            "dv_ttm": float,  # 股息率（TTM）（%）
+            "total_share": float,  # 总股本 （万股）
+            "float_share": float,  # 流通股本 （万股）
+            "free_share": float,  # 自由流通股本 （万）
+            "total_mv": float,  # 总市值 （万元）
+            "circ_mv": float,  # 流通市值（万元）
         }
 
     @staticmethod
@@ -67,11 +77,12 @@ class DailyDataReader(DataReader):
         stock_list = DataReader.get_stock_list(update=False)
         for i, stock in tqdm(stock_list.iterrows(),
                              total=len(stock_list),
-                             desc="Refresh %s" % DailyDataReader.data_name):
+                             desc="Refresh %s" % DailyBasicDataReader.data_name):
             end_date = None
             if stock['delist_date'] != 'None' and stock['delist_date'] is not None:
                 end_date = date_utils.convert_format(stock['delist_date'], "%Y%m%d", "%Y-%m-%d")
 
-            DailyDataReader(stock_code=stock.name).get_data(end_date=end_date)
+            DailyBasicDataReader(stock_code=stock.name).get_data(end_date=end_date)
+            time.sleep(60 / 500 * 2)
 
-        print(f"Finish Refresh {DailyDataReader.data_name} data!")
+        print(f"Finish Refresh {DailyBasicDataReader.data_name} data!")

@@ -9,12 +9,14 @@ ROOT = FILE.parents[1]
 
 sys.path.insert(0, str(ROOT))
 
+from utils.utils import is_null
+
 pin_memory_cache = dict()
 use_pin_memory = False  # 是否使用pin_memory，全局配置
 
 
 def set_trade_date_as_index(data: DataFrame, format='%Y%m%d'):
-    if data is None:
+    if is_null(data):
         return data
 
     if data.index.name == 'trade_date':

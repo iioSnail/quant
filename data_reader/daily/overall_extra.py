@@ -1,5 +1,7 @@
 """
 This data is not from any data API. It's computed by other data.
+
+Note that this data is based on the daily data and daily_basic data.
 """
 import numpy as np
 
@@ -7,17 +9,17 @@ from pandas import DataFrame
 from tqdm import tqdm
 
 from data_reader.base import DataReader
+from data_reader.daily import db_name
 from data_reader.utils import pin_memory, set_trade_date_as_index
 from utils import date_utils
 from utils.date_utils import get_today
-from utils.log_utils import print_verbose
 
 
 class OverallExtraDataReader(DataReader):
     data_name = "overall_extra"
 
     def __init__(self):
-        super().__init__("", data_type='extra')
+        super().__init__("", data_type='extra', db_name=db_name)
 
     @pin_memory(is_obj=True, obj_fields=('stock_code', 'start_date', 'end_date',))
     def get_data(self, start_date: str = None, end_date: str = None, request=True, *args, **kwargs):
@@ -43,8 +45,15 @@ class OverallExtraDataReader(DataReader):
                 overall_daily_basic_data = self.db.select_union('daily_basic', sql_template)
 
                 if len(overall_daily_data) != len(overall_daily_basic_data):
-                    print("[WARN]daily和daily_basic数量不相等！trade_date:" + trade_date)
+                    # set(overall_daily_data['ts_code']) - set(overall_daily_basic_data['ts_code'])
+                    if len(overall_daily_data) == 0 or len(overall_daily_basic_data) == 0:
+                        print("[WARN]daily或daily_basic数据有问题，停止计算！trade_date:" + trade_date)
+                        break
+                    else:
+                        print("[WARN]daily和daily_basic数量不相等！trade_date:" + trade_date)
 
+                # 未盈利的公司，将市盈率设置为0
+                overall_daily_basic_data['pe_ttm'] = overall_daily_basic_data['pe_ttm'].fillna(0)
                 profitable_daily_basic_data = overall_daily_basic_data[
                     overall_daily_basic_data['pe_ttm'] > 0]  # 盈利的公司basic数据
 
@@ -63,12 +72,13 @@ class OverallExtraDataReader(DataReader):
                         'rise_company_number': rise_company_number,
                         'fall_company_number': fall_company_number,
                     })
-                    continue
+                    break
 
                 # 计算与市盈率相关的指标
-                avg_pe_ttm = round(profitable_daily_basic_data['pe_ttm'].mean(), 2)  # 平均动态市盈率
-                weight_avg_pe_ttm = np.average(profitable_daily_basic_data['pe_ttm'],
-                                               weights=profitable_daily_basic_data['total_mv'])  # 加权平均动态市盈率
+                avg_pe_ttm = round(overall_daily_basic_data['pe_ttm'].mean(), 2)  # 平均动态市盈率
+                weight_avg_pe_ttm = np.average(overall_daily_basic_data['pe_ttm'],
+                                               weights=overall_daily_basic_data['total_mv'])  # 加权平均动态市盈率
+                weight_avg_pe_ttm = round(weight_avg_pe_ttm, 2)
 
                 overall_total_mv = round(overall_daily_basic_data['total_mv'].sum() / 1_0000_0000, 2)  # 全体公司的总市值（万亿元）
                 overall_circ_mv = round(overall_daily_basic_data['circ_mv'].sum() / 1_0000_0000, 2)  # 全体公司的流通市值（万亿元）
