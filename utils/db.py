@@ -9,6 +9,8 @@ from typing import List, Dict
 
 from pandas import DataFrame
 
+from utils.log_utils import print_verbose
+
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[1]
 
@@ -22,6 +24,8 @@ from utils.utils import is_null
 class SqliteDB(object):
     db_dir = ROOT / 'data'
 
+    conn_pool = {}
+
     # db_dir = Path(ROOT / 'data' / 'test')
     # db_dir = Path(r"E:/data")
 
@@ -29,8 +33,12 @@ class SqliteDB(object):
         if not db_name.endswith(".sqlite"):
             db_name += ".sqlite"
 
-        self.con = sqlite3.connect(str(SqliteDB.db_dir / db_name))
+        if db_name not in SqliteDB.conn_pool:
+            con = sqlite3.connect(str(SqliteDB.db_dir / db_name))
+            print_verbose(f"连接{db_name}数据库成功.")
+            SqliteDB.conn_pool[db_name] = con
 
+        self.con = SqliteDB.conn_pool[db_name]
         self.exist_tables = set()  # 记录哪些表已经存在
         self.table_columns: Dict[str, List[str]] = dict()
         self.table_structures: Dict[str, DataFrame] = dict()  # 记录表结构
@@ -351,9 +359,6 @@ class SqliteDB(object):
         """
         sql = f"select * from `{table_name}` order by `{order_by}` desc limit 1;"
         return self.select(table_name, sql=sql, dtype=dtype)
-
-    def __del__(self):
-        self.con.close()
 
 
 if __name__ == '__main__':

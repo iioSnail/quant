@@ -44,9 +44,11 @@ class DailyDataReader(DataReader):
                                   **kwargs
                                   )
 
-    def dtype(self):
+    @staticmethod
+    def dtype():
         return {
             "trade_date": str,
+            "ts_code": str,
             "open": float,
             "high": float,
             "low": float,
@@ -59,7 +61,7 @@ class DailyDataReader(DataReader):
         }
 
     @staticmethod
-    def refresh_data():
+    def refresh_all_data():
         """
         Request new data from API and store them into database.
         Note that the method is used for refreshing data when the data has large lack.
@@ -75,3 +77,23 @@ class DailyDataReader(DataReader):
             DailyDataReader(stock_code=stock.name).get_data(end_date=end_date)
 
         print(f"Finish Refresh {DailyDataReader.data_name} data!")
+
+    @staticmethod
+    def refresh_data(trade_date: str = None):
+        def get_all_data_func(trade_date):
+            resp_data = DataReader.pro.daily(trade_date=trade_date.replace("-", ""))
+            print(f"获取多个股票{trade_date}日线行情(daily)")
+            return resp_data
+
+        def refresh_stock_data_func(stock_code):
+            DailyDataReader(stock_code).get_data()
+
+        DataReader._refresh_data(
+            table_name_template='daily_{stock_code}',
+            dtype=DailyDataReader.dtype(),
+            get_all_data_func=get_all_data_func,
+            refresh_stock_data_func=refresh_stock_data_func,
+            data_type='daily',
+            db_name=db_name,
+            trade_date=trade_date,
+        )

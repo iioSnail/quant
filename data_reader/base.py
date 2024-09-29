@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Callable
 
 from pandas import DataFrame, Series
+from tqdm import tqdm
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[1]
@@ -16,9 +17,9 @@ import tushare as ts
 from utils import date_utils
 from utils.date_utils import get_yesterday, get_today, date_add
 from utils.db import SqliteDB
-from utils.log_utils import print_verbose
 from data_reader.utils import convert_alias_to_ts_code, set_trade_date_as_index, pin_memory, drop_duplicates_by_index
 from utils.utils import is_null
+from utils.log_utils import print_verbose
 
 pin_memory_cache = dict()
 use_pin_memory = False  # 是否使用pin_memory，全局配置
@@ -425,3 +426,94 @@ class DataReader(object):
         data = DataReader.get_trade_cal(date, date)
 
         return data.iloc[0]['is_open'] == 1 or data.iloc[0]['is_open'] == "1"
+
+    @staticmethod
+    def _refresh_data(table_name_template: str,
+                      dtype: dict,
+                      get_all_data_func: Callable,
+                      refresh_stock_data_func: Callable,
+                      data_type,
+                      db_name,
+                      trade_date: str = None,
+                      ):
+        """
+        按日期获取数据所有股票的数据。主要用于每日全量获取当天的数据，要不一次一个接口拉太慢了。
+
+        trade_date若为None，则视为上一个交易日。
+        """
+        db = SqliteDB(db_name)
+
+        if trade_date is None:
+            trade_date = DataReader.get_last_trade_date(get_today())
+
+        if not DataReader.is_trading_day(trade_date):
+            raise RuntimeError(f"{trade_date}不是交易日！")
+
+        stock_list = DataReader.get_stock_list(update=True)
+        last_trade_date = DataReader.get_last_trade_date(trade_date, close=False, yesterday_limit=False)
+
+        resp_data = get_all_data_func(trade_date)
+        time.sleep(0.1)
+
+        # 已经获取过的股票列表，避免一条一条再次检索，加快速度。
+        obtained_stock_list = DataReader.get_union(data_type, trade_date, trade_date, db=db)['stock_code']
+        obtained_stock_list = set(obtained_stock_list)
+
+        for i in tqdm(range(len(resp_data)), desc='Saving %s Data' % data_type):
+            resp_data_item = resp_data.iloc[i:i + 1].copy()
+            ts_code = resp_data_item['ts_code'].item()
+            stock_data = stock_list[stock_list['ts_code'] == ts_code]
+
+            if len(stock_data) <= 0:
+                print_verbose(f"[WARN] 股票列表中不存在“{ts_code}”，可能是新上市公司！")
+                continue
+
+            stock_code = stock_data.iloc[0].name
+
+            if stock_code in obtained_stock_list:
+                # 该股票已经获取过了数据了
+                continue
+
+            table_name = table_name_template.format(stock_code=stock_code)
+
+            resp_data_item = set_trade_date_as_index(resp_data_item)
+
+            if 'ts_code' in resp_data_item.columns:
+                del resp_data_item['ts_code']
+
+            # 连续性判断，不连续则不存。
+            last_data = db.get_last_data(table_name, dtype=dtype)
+
+            if last_data is None or len(last_data) <= 0:
+                print_verbose(f"[WARN] {table_name}表不存在，重新请求全量数据!")
+                refresh_stock_data_func(stock_code)
+                continue
+
+            if date_utils.compare_to(last_data.iloc[0]['trade_date'], last_trade_date) > 0:
+                # 已经保存了，无需再次保存
+                continue
+
+            if date_utils.compare_to(last_data.iloc[0]['trade_date'], last_trade_date) < 0:
+                print_verbose(f"[WARN] {table_name}表数据不连续，重新请求全量数据!")
+                refresh_stock_data_func(stock_code)
+                continue
+
+            db.to_sql(resp_data_item, table_name, dtype=dtype)
+
+        return resp_data
+
+    @staticmethod
+    def get_union(data_type: str, start_date: str, end_date: str, db=None):
+        """
+        获取某种数据某一段时间内的所有数据。主要用于解决一张张表读取速度太慢的问题。
+
+        例如：data_type='daily'
+        那么就是获取所有股票某一段时间内的daily数据。
+        """
+        if db is None:
+            db = DataReader.db
+
+        table_name = data_type
+        sql_template = "select * from {table_name} where trade_date>='%s' and trade_date<='%s'" % (start_date, end_date)
+
+        return db.select_union(table_name, sql_template, add_stock_code=True)
