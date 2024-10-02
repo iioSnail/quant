@@ -1,5 +1,14 @@
+import os
+import sys
+from pathlib import Path
+from typing import Callable
 import pickle
 import time
+
+FILE = Path(__file__).resolve()
+ROOT = FILE.parents[1]
+
+sys.path.insert(0, str(ROOT))
 
 import numpy as np
 import pandas as pd
@@ -12,10 +21,22 @@ def save_obj(obj, filepath):
         pickle.dump(obj, f)
 
 
-def load_obj(filepath):
+def load_obj(filepath, default=None):
+    if not os.path.exists(filepath):
+        return default
     with open(filepath, "br") as f:
         return pickle.load(f)
 
+def put_cache(key, value):
+    cache_file = ROOT / 'local_cache.pkl'
+    cache_dict = load_obj(cache_file, {})
+    cache_dict[key] = value
+    save_obj(cache_dict, cache_file)
+
+def get_cache(key):
+    cache_file = ROOT / 'local_cache.pkl'
+    cache_dict = load_obj(cache_file, {})
+    return cache_dict.get(key)
 
 def write_txt(txt, filepath):
     with open(filepath, "w") as f:
@@ -157,7 +178,3 @@ def equals(*args):
             return False
 
     return True
-
-
-if __name__ == '__main__':
-    print(equals(1, 1, 1))

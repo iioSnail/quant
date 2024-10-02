@@ -30,7 +30,7 @@ class DailyBasicDataReader(DataReader):
                                              start_date=req_start_date,
                                              fields=','.join(self.dtype().keys()),
                                              )
-
+            time.sleep(0.01)
             resp_data = set_trade_date_as_index(resp_data)
 
             return resp_data

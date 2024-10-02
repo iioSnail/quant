@@ -9,8 +9,7 @@ import pandas as pd
 from pandas import Series
 from tqdm import tqdm
 
-from utils.data_process import get_all_china_stock_code_list
-from utils.data_reader import TuShareDataReader
+from data_reader.base import DataReader
 from utils.date_utils import get_today, date_add
 from utils.utils import is_null
 
@@ -23,14 +22,14 @@ class PickStock(object):
     """
 
     def __init__(self):
-        self.stock_code_list = TuShareDataReader.get_stock_list(list_status='L', only_stock_code=True)
-        self.today = TuShareDataReader.get_last_trade_date()  # 最近一个交易日
+        self.stock_code_list = DataReader.get_stock_list(list_status='L', only_stock_code=True)
+        self.today = DataReader.get_last_trade_date()  # 最近一个交易日
 
         self.buy_stocks = []  # 记录符合条件的股票代码
 
         self.error_msgs = []  # 错误信息（某些股票可能有问题）
 
-    def buy_or_not(self, reader: TuShareDataReader) -> bool:
+    def buy_or_not(self, reader: DataReader) -> bool:
         """
         子类需实现该方法。
         通过reader可以获取当前股票的所有数据，然后判断今天是否买入条件。
@@ -46,7 +45,7 @@ class PickStock(object):
 
         return False
 
-    def get_prev_data(self, n, reader: TuShareDataReader, data_type) -> Series:
+    def get_prev_data(self, n, reader: DataReader, data_type) -> Series:
         """
         获取往前推第n天的数据
         """
@@ -59,13 +58,13 @@ class PickStock(object):
 
         return data.iloc[-n]
 
-    def get_last_data(self, reader: TuShareDataReader, data_type) -> Series:
+    def get_last_data(self, reader: DataReader, data_type) -> Series:
         """
         获取某只股票最后一个交易日的数据
         """
         last_data = self.get_prev_data(1, reader, data_type)
         if last_data is None:
-            return last_data
+            return None
 
         if last_data.name != self.today:
             return None
@@ -73,13 +72,13 @@ class PickStock(object):
         return last_data
 
 
-    def get_last_daily_data(self, reader: TuShareDataReader) -> Series:
+    def get_last_daily_data(self, reader: DataReader) -> Series:
         """
         获取最后一个交易日的日线数据
         """
         return self.get_last_data(reader, 'daily')
 
-    def get_last_daily_basic_data(self, reader: TuShareDataReader) -> Series:
+    def get_last_daily_basic_data(self, reader: DataReader) -> Series:
         """
         获取最后一个交易日的日线数据
         """
@@ -92,7 +91,7 @@ class PickStock(object):
         for stock_code in tqdm(self.stock_code_list, desc="Find Stock(%s)" % self.__class__.__name__):
             try:
                 # 一年的数据应该够用了
-                reader = TuShareDataReader(stock_code).set_date_range(start_date=date_add(get_today(), n_day=-365),
+                reader = DataReader(stock_code).set_date_range(start_date=date_add(get_today(), n_day=-365),
                                                                       end_date=get_today())
 
                 if self.get_last_daily_data(reader) is None:
@@ -122,7 +121,7 @@ def CommonPickStock(PickStock):
     todo
     """
 
-    def buy_or_not(self, reader: TuShareDataReader) -> bool:
+    def buy_or_not(self, reader: DataReader) -> bool:
         pass
 
 

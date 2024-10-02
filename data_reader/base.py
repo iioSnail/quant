@@ -18,7 +18,7 @@ from utils import date_utils
 from utils.date_utils import get_yesterday, get_today, date_add
 from utils.db import SqliteDB
 from data_reader.utils import convert_alias_to_ts_code, set_trade_date_as_index, pin_memory, drop_duplicates_by_index
-from utils.utils import is_null
+from utils.utils import is_null, put_cache, get_cache
 from utils.log_utils import print_verbose
 
 pin_memory_cache = dict()
@@ -224,7 +224,7 @@ class DataReader(object):
         }
         table_name = 'stock_basic'
 
-        if update:
+        if update and get_cache("stock_basic_update_date") != get_today():
             DataReader.db.del_table(table_name)
 
         data = DataReader.db.select(table_name,
@@ -248,6 +248,7 @@ class DataReader(object):
             data = data.set_index('symbol')
 
             DataReader.db.to_sql(data, table_name, dtype=dtype)
+            put_cache("stock_basic_update_date", get_today())
 
         if market != 'all':
             data = data[data['market'] == market]
@@ -447,7 +448,7 @@ class DataReader(object):
             trade_date = DataReader.get_last_trade_date(get_today())
 
         if not DataReader.is_trading_day(trade_date):
-            raise RuntimeError(f"{trade_date}不是交易日！")
+            return
 
         stock_list = DataReader.get_stock_list(update=True)
         last_trade_date = DataReader.get_last_trade_date(trade_date, close=False, yesterday_limit=False)
@@ -517,3 +518,21 @@ class DataReader(object):
         sql_template = "select * from {table_name} where trade_date>='%s' and trade_date<='%s'" % (start_date, end_date)
 
         return db.select_union(table_name, sql_template, add_stock_code=True)
+
+    def get_data_method(self, data_type: str) -> Callable:
+        """
+        根据data_type返回对应的获取数据方法。
+
+        例如：daily返回get_daily
+        """
+        if data_type == 'daily':
+            from data_reader.daily.daily import DailyDataReader
+            return DailyDataReader(self.stock_code).get_data
+        elif data_type == 'daily_basic':
+            from data_reader.daily.daily_basic import DailyBasicDataReader
+            return DailyBasicDataReader(self.stock_code).get_data
+        elif data_type == 'index_daily':
+            from data_reader.index.index_daily import IndexDailyDataReader
+            return IndexDailyDataReader("上证指数").get_data
+        else:
+            raise RuntimeError("不支持的数据类型：" % data_type)

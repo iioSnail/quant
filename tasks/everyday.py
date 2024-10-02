@@ -83,7 +83,8 @@ def obtain_daily_data(trade_date):
                 continue
 
             reader = TuShareDataReader(stock_code).set_date_range(trade_date, trade_date)
-            _ = reader.get_data_method(data_type)()
+            _ = reader.\
+                get_data_method(data_type)()
 
     one_by_one('daily_extra')
 

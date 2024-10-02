@@ -3,8 +3,6 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-from config import tushare_token
-
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[1]
 
@@ -17,6 +15,7 @@ import tushare as ts
 from pandas import DataFrame, Series
 from tqdm import tqdm
 
+from config import tushare_token
 from utils import date_utils
 import utils.data_process as data_process
 from utils.date_utils import get_yesterday, get_today, date_add, split_month, get_month_list

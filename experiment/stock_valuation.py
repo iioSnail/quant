@@ -36,9 +36,20 @@ def valuation_DCF(
 
 
 if __name__ == '__main__':
+    # 茅台
+    price = valuation_DCF(
+        next_decade_fcf=[650, 700, 750, 800, 850, 900, 950, 1000, 1050, 1100],
+        next_decade_dr=0.05,
+        future_gr=0.04,
+        future_dr=0.07,
+        n_shares=252485.11,
+    )
+
+    print("贵州茅台: ", price)
+
     # 药明康德
     price = valuation_DCF(
-        next_decade_fcf=[160, 150, 140, 130, 120, 110, 100, 90, 80, 70],
+        next_decade_fcf=[70, 80, 90, 100, 110, 120, 130, 140, 150, 160],
         next_decade_dr=0.05,
         future_gr=0.04,
         future_dr=0.07,
@@ -48,10 +59,49 @@ if __name__ == '__main__':
     print("药明康德：", price)
 
     price = valuation_DCF(
-        next_decade_fcf=[160, 150, 140, 130, 120, 110, 100, 90, 80, 70],
+        next_decade_fcf=[70, 80, 90, 100, 110, 120, 130, 140, 150, 160],
         next_decade_dr=0.05,
         future_gr=0.04,
         future_dr=0.07,
         n_shares=757803.72,
     )
     print("隆基绿能：", price)
+
+    price = valuation_DCF(
+        next_decade_fcf=[60, 80, 90, 100, 110, 120, 130, 140, 150, 150],
+        next_decade_dr=0.05,
+        future_gr=0.04,
+        future_dr=0.07,
+        n_shares=150270.68,
+    )
+    print("洋河股份：", price)
+
+    price = valuation_DCF(
+        next_decade_fcf=[400, 420, 440, 460, 480, 500, 520, 540, 560, 580],
+        next_decade_dr=0.05,
+        future_gr=0.04,
+        future_dr=0.07,
+        n_shares=388152.59,
+    )
+    print("五粮液：", price)
+
+    price = valuation_DCF(
+        next_decade_fcf=[80, 90, 100, 110, 120, 130, 140, 150, 160, 170],
+        next_decade_dr=0.05,
+        future_gr=0.04,
+        future_dr=0.07,
+        n_shares=910599.88,
+    )
+    print("海康威视：", price)
+    
+    price = valuation_DCF(
+        next_decade_fcf=[19, 21, 23, 25, 27, 29, 31, 33, 35, 37],
+        next_decade_dr=0.05,
+        future_gr=0.04,
+        future_dr=0.07,
+        n_shares=46252.56,
+    )
+    print("金山办公：", price)
+
+
+

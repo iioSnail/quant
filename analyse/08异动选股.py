@@ -3,13 +3,14 @@
 import sys
 from pathlib import Path
 
+from data_reader.base import DataReader
+
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[1]
 
 sys.path.insert(0, str(ROOT))
 
 from src.find_stock import PickStock
-from utils.data_reader import TuShareDataReader
 
 
 class DayangXianLowTurnover_PickStock(PickStock):
@@ -17,7 +18,7 @@ class DayangXianLowTurnover_PickStock(PickStock):
     大阳线低换手率
     """
 
-    def buy_or_not(self, reader: TuShareDataReader) -> bool:
+    def buy_or_not(self, reader: DataReader) -> bool:
         # 以下是样例，子类重写这段代码即可。
         last_daily_data = self.get_last_daily_data(reader)
         last_daily_basic_data = self.get_last_daily_basic_data(reader)
