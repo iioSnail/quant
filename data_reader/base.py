@@ -46,6 +46,7 @@ class DataReader(object):
 
         self.stock_code = stock_code
         self.data_type = data_type
+        self.db_name = db_name
 
         if data_type == 'stock':
             self.stock_properties = self.get_stock_properties()

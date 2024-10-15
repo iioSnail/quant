@@ -103,5 +103,14 @@ if __name__ == '__main__':
     )
     print("金山办公：", price)
 
+    price = valuation_DCF(
+        next_decade_fcf=[40, 50, 60, 70, 80, 90, 100, 110, 120, 130],
+        next_decade_dr=0.05,
+        future_gr=0.04,
+        future_dr=0.07,
+        n_shares=121_442.70,
+    )
+    print("韦尔股份：", price)
+
 
 

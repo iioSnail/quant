@@ -22,6 +22,9 @@ from typing import Dict, Tuple
 from pandas import DataFrame, Series
 from tqdm import tqdm
 
+from data_reader.daily.daily import DailyDataReader
+from data_reader import base
+from data_reader.base import DataReader
 import utils.data_reader
 from src.analysis import analysis_index
 from utils.data_process import get_all_china_stock_code_list
@@ -297,13 +300,13 @@ def _read_data(require_data: tuple,  # 需要读取哪些数据
         require_data = list(require_data)
         require_data.append('daily')
 
-    reader = TuShareDataReader(stock_code).set_date_range(start_date, end_date)
+    reader = DailyDataReader(stock_code).set_date_range(start_date, end_date)
 
-    daily_data = reader.get_daily()
+    daily_data = reader.get_data()
 
     data = daily_data
 
-    if len(require_data) > 1:
+    if len(require_data) > 1:  # Fixme
         data = reader.get_combine(require_data)
 
     if curr_date not in data.index:  # 股票数据异常，后续不参与回测计算
@@ -429,6 +432,7 @@ def backtest(
     """
 
     utils.data_reader.use_pin_memory = True  # 设置缓存读取到的数据，要不太慢了
+    base.use_pin_memory = True
 
     stock_code_list = get_all_china_stock_code_list()
     if random_stock_list:
@@ -446,7 +450,7 @@ def backtest(
 
     date_list = get_future_date_list(start_date, days)
     last_date = date_list[-1]
-    last_date = TuShareDataReader.get_last_trade_date(last_date)  # 最后一个交易日
+    last_date = DataReader.get_last_trade_date(last_date)  # 最后一个交易日
 
     # 先将所有的数据读取到内存
     for stock_code in tqdm(stock_code_list, desc="Read Data"):
@@ -462,7 +466,7 @@ def backtest(
         if reader is None:
             continue
 
-        _ = reader.get_stk_limit()
+        _ = DataReader(stock_code).get_stk_limit()
 
     print()
     print("开始进行回测计算")

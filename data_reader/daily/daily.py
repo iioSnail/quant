@@ -33,7 +33,7 @@ class DailyDataReader(DataReader):
 
             return resp_data
 
-        return self.get_something(table_name=table_name,
+        data = self.get_something(table_name=table_name,
                                   dtype=self.dtype(),
                                   req_func=req_func,
                                   start_date=start_date,
@@ -43,6 +43,17 @@ class DailyDataReader(DataReader):
                                   *args,
                                   **kwargs
                                   )
+
+        # 增加index（序号）列
+        if 'index' in data.columns:
+            del data['index']
+
+        data['index'] = list(range(1, len(data) + 1))
+
+        if 'turnover_rate' in data.columns:  # turnover_rate去daily_basic中取
+            del data['turnover_rate']
+
+        return data
 
     @staticmethod
     def dtype():

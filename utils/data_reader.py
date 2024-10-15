@@ -1440,7 +1440,12 @@ class TuShareDataReader(object):
             if date_utils.compare_to(start_date, get_today()) >= 0:
                 break
 
-            data_list.append(self.pro.cyq_chips(ts_code=self.ts_code, start_date=start_date, end_date=end_date))
+            try:
+                resp_data = self.pro.cyq_chips(ts_code=self.ts_code, start_date=start_date, end_date=end_date)
+            except Exception as e:
+                return None  # todo
+
+            data_list.append(resp_data)
             print_verbose(f"获取筹码分布, {self.ts_code} [{start_date}, {end_date}]")
             time.sleep(0.35)  # 该接口每分钟至多200次
 

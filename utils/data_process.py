@@ -187,7 +187,7 @@ def add_prev_n(data, n, include_columns=None, exclude_columns=('ts_code',)):
         if include_columns is not None and column not in include_columns:
             continue
 
-        if column.startswith(f"prev_{n}_"):
+        if column.startswith(f"prev_"):
             continue
 
         curr_data[f'prev_{n}_{column}'] = list(prev_data[column])

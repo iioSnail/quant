@@ -12,8 +12,6 @@ sys.path.insert(0, str(ROOT))
 from utils.utils import is_null
 
 pin_memory_cache = dict()
-use_pin_memory = False  # 是否使用pin_memory，全局配置
-
 
 def set_trade_date_as_index(data: DataFrame, format='%Y%m%d'):
     if is_null(data):
@@ -84,6 +82,8 @@ def pin_memory(is_obj=False, obj_fields=()):
     :param is_obj: 是否是类对象
     :param obj_fields: 哪些类对象属性要作为key的一部分
     """
+
+    from data_reader.base import use_pin_memory
 
     def wrapper_out(func):
 

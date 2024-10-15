@@ -5,6 +5,7 @@
         主要的作用是找出好的买入和卖出时机。
 """
 import copy
+import random
 import sys
 import types
 from pathlib import Path
@@ -21,6 +22,8 @@ from pandas import DataFrame, Series
 from prettytable import PrettyTable
 from tqdm import tqdm
 
+from data_reader.base import DataReader
+from data_reader.daily.daily import DailyDataReader
 from utils import date_utils
 from utils.plot_utils import plot_analysis_factor, plot_analysis_sample_distribution
 from utils.data_process import get_all_china_stock_code_list, remove_continual_data, drop_duplicated_columns
@@ -141,6 +144,9 @@ def analysis_candle(
 
 
 def _stat_factors(curr_sr, data, factors, results, prefix):
+    if is_null(data):
+        return
+
     for factor in factors:
         if curr_sr.name not in data.index:
             value = 0.
@@ -156,7 +162,7 @@ def _stat_factors(curr_sr, data, factors, results, prefix):
 def get_results(stock_code,
                 curr_data,
                 daily_data,
-                future_days,
+                future_days: list,
                 print_result,
                 daily_basic_data=None,
                 daily_extra_data=None,
@@ -203,21 +209,21 @@ def get_results(stock_code,
     if date_utils.compare_to(daily_data.index[0], daily_data.index[-1]) > 0:
         raise RuntimeError(f"{stock_code}数据有问题，请检查！")
 
-    # 读取额外统计数据
-    reader = TuShareDataReader(stock_code).set_date_range(daily_data.index[0], daily_data.index[-1])
-
-    if daily_extra_data is None:
-        daily_extra_data = reader.get_daily_extra()
-
-    if cyq_extra_data is None:
-        cyq_extra_data = reader.get_cyq_extra()
-
-    if daily_basic_data is None:
-        daily_basic_data = reader.get_daily_basic()
-
-    index_reader = TuShareDataReader('上证', is_index=True).set_date_range(daily_data.index[0], daily_data.index[-1])
-    if index_daily_data is None:
-        index_daily_data = index_reader.get_index_daily(index_prefix=True, pin_memory=True)
+    # 读取额外统计数据  fixme
+    # reader = TuShareDataReader(stock_code).set_date_range(daily_data.index[0], daily_data.index[-1])
+    #
+    # if daily_extra_data is None:
+    #     daily_extra_data = reader.get_daily_extra()
+    #
+    # if cyq_extra_data is None:
+    #     cyq_extra_data = reader.get_cyq_extra()
+    #
+    # if daily_basic_data is None:
+    #     daily_basic_data = reader.get_daily_basic()
+    #
+    # index_reader = TuShareDataReader('上证', is_index=True).set_date_range(daily_data.index[0], daily_data.index[-1])
+    # if index_daily_data is None:
+    #     index_daily_data = index_reader.get_index_daily(index_prefix=True, pin_memory=True)
 
     for i, day in enumerate(future_days):
         # 分析K线，获取上涨下跌结果
@@ -306,6 +312,7 @@ def analysis_A_share(
         limit=-1,  # 限制股票数量，用于debug
         _print=None,  # 日志输出函数
         require_data=None,  # 本次分析需要用到哪些数据。若不传，则根据AnalysisOne._require_data方法进行判断
+        limit_random=False,  # 当限制股票数量的时候，是否随机挑选n个股票
 ):
     """
     分析整个A股的不同K线情况
@@ -320,6 +327,9 @@ def analysis_A_share(
     if line_func_kwargs is not None:
         _print("line_func_kwargs", line_func_kwargs)
     stock_code_list = get_all_china_stock_code_list()
+
+    if limit > 0 and limit_random:
+        random.shuffle(stock_code_list)
 
     # 初始化一个列表，负责记录每个future_day的情况
     counters = []
@@ -464,7 +474,8 @@ def analysis_A_share(
     # print(special_stock_codes)
 
     if not fprint.disabled:
-        plot_analysis_sample_distribution(counters_bak, root_dir=log_dir, line_func_kwargs=line_func_kwargs, limit=limit)
+        plot_analysis_sample_distribution(counters_bak, root_dir=log_dir, line_func_kwargs=line_func_kwargs,
+                                          limit=limit)
 
     return counters, ratio_con_list, rise_std_list
 
@@ -490,7 +501,6 @@ def analysis_factor(
     """
 
     # 日志怎么说 todo
-
 
     results = []
 
@@ -622,19 +632,26 @@ class AnalysisOne:
         self.print_result = print_result
         self.remove_continual = remove_continual
 
-        self.reader = TuShareDataReader(stock_code).set_date_range(data_start_date, data_end_date)
+        # todo deprecated
         self.index_reader = TuShareDataReader("上证指数", is_index=True).set_date_range(data_start_date, data_end_date)
         self.db = TuShareDataReader.db
 
+        self.daily_reader = DailyDataReader(stock_code).set_date_range(data_start_date, data_end_date)
+        self.daily_basic_reader = DailyDataReader(stock_code).set_date_range(data_start_date, data_end_date)
+        self.stock_properties = self.daily_reader.get_stock_properties()
+
+        # todo deprecated
+        self.reader = TuShareDataReader(stock_code).set_date_range(data_start_date, data_end_date)
+
         # {stock_code}的股票每日各指标情况
-        self.daily_data = self.reader.get_daily()
+        self.daily_data = self.daily_reader.get_data()
 
         if require_data is None:
             require_data = self._require_data()  # 分析需要用到哪些额外数据, 'daily'是必须的，填不填都会有
 
         self.daily_basic_data = None
         if 'daily_basic' in require_data:
-            self.daily_basic_data = self.reader.get_daily_basic()
+            self.daily_basic_data = self.daily_basic_reader.get_data()
 
         self.daily_extra_data = None
         if 'daily_extra' in require_data:
@@ -664,7 +681,13 @@ class AnalysisOne:
         """
         return ('daily',)
 
-    def __call__(self, *args, **kwargs):
+    def get_data(self):
+        """
+        获取data。若子类实现了该方法，则用该发放的返回值作为data
+        """
+        return None
+
+    def _get_concat_data(self):
         concat_data = [self.daily_data]
 
         if self.daily_basic_data is not None:
@@ -681,6 +704,13 @@ class AnalysisOne:
 
         if len(self.daily_data) != len(data):
             raise RuntimeError("合并前后数据量不一致，请查看数据或代码是否有问题！")
+
+        return data
+
+    def __call__(self, *args, **kwargs):
+        data = self.get_data()
+        if data is None:
+            data = self._get_concat_data()
 
         try:
             data = self.filter_data(data, *args, **kwargs)

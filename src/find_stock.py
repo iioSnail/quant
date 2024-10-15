@@ -6,7 +6,7 @@
 """
 
 import pandas as pd
-from pandas import Series
+from pandas import Series, DataFrame
 from tqdm import tqdm
 
 from data_reader.base import DataReader
@@ -45,11 +45,21 @@ class PickStock(object):
 
         return False
 
+    def get_his_data(self, n, reader: DataReader, data_type) -> DataFrame:
+        """
+        获取往前推n天的所有数据
+        """
+        data = reader.get_data_method(data_type)()
+        if is_null(data):
+            return None
+
+        return data
+
     def get_prev_data(self, n, reader: DataReader, data_type) -> Series:
         """
         获取往前推第n天的数据
         """
-        data = reader.get_data_method(data_type)()
+        data = self.get_his_data(n, reader, data_type)
         if is_null(data):
             return None
 

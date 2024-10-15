@@ -33,6 +33,8 @@ class SqliteDB(object):
         if not db_name.endswith(".sqlite"):
             db_name += ".sqlite"
 
+        self.db_name = db_name
+
         if db_name not in SqliteDB.conn_pool:
             con = sqlite3.connect(str(SqliteDB.db_dir / db_name))
             print_verbose(f"连接{db_name}数据库成功.")
