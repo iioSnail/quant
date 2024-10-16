@@ -1,7 +1,7 @@
 import sys
 import time
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
 
 from pandas import DataFrame, Series
 from tqdm import tqdm
@@ -202,7 +202,7 @@ class DataReader(object):
                        exchange='all',  # 交易所 SSE上交所 SZSE深交所 BSE北交所
                        update=False,  # 为True时，删除原表重新获取
                        only_stock_code=False,  # 是否只返回stock_code. 若为True，则返回list
-                       ) -> DataFrame:
+                       ):
 
         dtype = {
             "ts_code": str,

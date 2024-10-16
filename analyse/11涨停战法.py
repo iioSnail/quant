@@ -121,6 +121,6 @@ if __name__ == '__main__':
         # sell_strategy=debug_sell,  # 卖出策略
         require_data=require_data,
         buy_timing='open',  # 买入时机；开盘买入：open，收盘买入：close
-        random_stock_list=False,
+        random_stock_list=True,
         debug_limit=-1,
     )

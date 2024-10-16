@@ -1219,56 +1219,6 @@ class TuShareDataReader(object):
             "volume_ratio": float,  # deprecated。使用daily_basic中的
         }
 
-    @pin_memory(is_obj=True, obj_fields=('stock_code', 'start_date', 'end_date',))
-    def get_daily(self, start_date: str = None, end_date: str = None, request=True, *args, **kwargs) -> DataFrame:
-        """
-        股票日线行情（默认前复权）
-        """
-        dtype = TuShareDataReader.daily_dtype()
-
-        table_name = f"daily_{self.stock_code}"
-
-        def req_func(req_start_date, req_end_date):
-            resp_data = ts.pro_bar(ts_code=self.ts_code,
-                                   start_date=req_start_date,
-                                   adj="qfq",
-                                   factors=['tor', "vr"])
-
-            print(f"获取日线行情，ts_code: {self.ts_code}")
-
-            resp_data = set_trade_date_as_index(resp_data)
-
-            if resp_data is None:
-                print(f"[ERROR]获取日线行情为None，ts_code: {self.ts_code}")
-                return DataFrame()
-
-            if 'ts_code' in resp_data.columns:
-                del resp_data['ts_code']
-
-            return resp_data
-
-        data = self._get_something(table_name=table_name,
-                                   dtype=dtype,
-                                   req_func=req_func,
-                                   start_date=start_date,
-                                   end_date=end_date,
-                                   request=request,
-                                   call_method='daily',
-                                   *args,
-                                   **kwargs
-                                   )
-
-        # 增加index（序号）列
-        if 'index' in data.columns:
-            del data['index']
-
-        data['index'] = list(range(1, len(data) + 1))
-
-        if 'turnover_rate' in data.columns:  # turnover_rate去daily_basic中取
-            del data['turnover_rate']
-
-        return data
-
     @staticmethod
     def daily_extra_dtype():
         return {

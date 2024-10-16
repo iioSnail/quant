@@ -23,12 +23,8 @@ from pandas import DataFrame, Series
 from tqdm import tqdm
 
 from data_reader.daily.daily import DailyDataReader
-from data_reader import base
 from data_reader.base import DataReader
-import utils.data_reader
 from src.analysis import analysis_index
-from utils.data_process import get_all_china_stock_code_list
-from utils.data_reader import TuShareDataReader, is_trading_day
 from utils.date_utils import get_future_date_list, date_diff, get_now
 from utils.log_utils import get_fprint, table_print
 
@@ -278,89 +274,455 @@ class BacktestRecord(object):
         return self.positions[stock_code]
 
 
-def _read_data(require_data: tuple,  # 需要读取哪些数据
-               stock_code: str,
-               curr_date: str,
-               start_date: str,
-               end_date: str,
-               record: BacktestRecord,
-               abnormal_stock_code_list: set,
-               buy_action_list) -> Tuple[TuShareDataReader, DataFrame, DataFrame]:
+class Backtest(object):
     """
-    读取数据。读取到的数据会被放在dict中。由于内存问题，该方法假设所有读取的数据都必须是trade_date作为index
-    例如：{
-        "daily": daily_data,
-        "daily_extra": daily_extra_data,
-        "cyq_extra": cyq_extra,
-    }
-
-    # todo 要在该函数发现所有有问题的股票，然后将其全部都排除
+    回测计算类
     """
-    if 'daily' not in require_data:
-        require_data = list(require_data)
-        require_data.append('daily')
 
-    reader = DailyDataReader(stock_code).set_date_range(start_date, end_date)
+    def __init__(self,
+                 init_money: float,  # 初始资金
+                 start_date: str,  # 开始时间，即从哪天开始模拟。format: %Y-%m-%d
+                 days: int,  # 持续多少天，时间到之后会立即卖出所有股票。非交易日也被算在内，因此可以用365天表示一年
+                 buy_timing: str = 'open',  # 买入时机；开盘买入：open，收盘买入：close
+                 stock_code_list=None,  # 参与回测的股票Code
+                 random_stock_list=False,  # 随机选取股票买入，而不是按照现有的股票顺序遍历。
+                 debug_limit=-1,  # debug模式，-1表示不开启，10表示只看前10个股票
+                 ):
 
-    daily_data = reader.get_data()
+        self.init_money = init_money
+        self.start_date = start_date
+        self.buy_timing = buy_timing
+        self.stock_code_list = stock_code_list
 
-    data = daily_data
+        if self.stock_code_list is None:
+            self.stock_code_list = DataReader.get_stock_list(only_stock_code=True)
 
-    if len(require_data) > 1:  # Fixme
-        data = reader.get_combine(require_data)
+        if random_stock_list:
+            random.shuffle(self.stock_code_list)
 
-    if curr_date not in data.index:  # 股票数据异常，后续不参与回测计算
-        sell_number = record.remove_stock(stock_code)  # 去掉之前的购买记录
-        abnormal_stock_code_list.add(stock_code)
-        buy_action_list.append([stock_code, curr_date, -sell_number])
-        return None, None, None
+        if debug_limit > 0:
+            self.stock_code_list = self.stock_code_list[:debug_limit]
 
-    return reader, daily_data, data
+        self.record = BacktestRecord(init_money)
+        self.trade_days = 0  # 交易日的数量
+        self.idle_money_list = []  # 记录每个交易日后的闲置资金
+        # 记录购买行为，例如：[('000001', '2023-01-01', +100), ('000001', '2023-01-02', +100), ...]
+        self.buy_action_list = []
+        self.abnormal_stock_code_list = set()
+
+        self.date_list = get_future_date_list(start_date, days)
+        self.last_date = DataReader.get_last_trade_date(self.date_list[-1])  # 最后一个交易日
+
+    def _require_data(self):
+        """
+        如果需要更多数据，重写该类
+        """
+        return ('daily',)
+
+    def buy_strategy(self, data, curr_date, prev_data, curr_data, dto, stock_code) -> float:
+        """
+        买入策略，需要子类实现。
+        返回买入的仓位比例
+        """
+        pass
+
+    def sell_strategy(self, data, curr_data, dto) -> float:
+        """
+        卖出策略，需要子类实现
+        返回卖出的仓位比例
+        """
+        pass
+
+    def _read_data(self,
+                   stock_code: str,
+                   curr_date: str,
+                   ) -> Tuple[DataFrame, DataFrame]:
+        """
+        读取数据。读取到的数据会被放在dict中。由于内存问题，该方法假设所有读取的数据都必须是trade_date作为index
+        例如：{
+            "daily": daily_data,
+            "daily_extra": daily_extra_data,
+            "cyq_extra": cyq_extra,
+        }
+
+        # todo 要在该函数发现所有有问题的股票，然后将其全部都排除
+        """
+        require_data = self._require_data()
+        reader = DailyDataReader(stock_code).set_date_range(self.start_date, self.last_date)
+
+        daily_data = reader.get_data()
+
+        data = daily_data
+
+        if len(require_data) > 1:  # Fixme
+            data = reader.get_combine(require_data)
+
+        if curr_date not in data.index:  # 股票数据异常，后续不参与回测计算
+            sell_number = self.record.remove_stock(stock_code)  # 去掉之前的购买记录
+            self.abnormal_stock_code_list.add(stock_code)
+            self.buy_action_list.append([stock_code, curr_date, -sell_number])
+            return DataFrame(), DataFrame()
+
+        return daily_data, data
+
+    def _can_buy(
+            self,
+            stock_code,
+            curr_date: str,  # 当天日期
+            curr_data: Series,  # 当天数据
+    ) -> bool:
+        """
+        判断是否可以买入 todo
+        可以买返回True，否则返回False
+        """
+        return True  # todo
+
+        limit_data = reader.get_stk_limit()
+        up_limit = limit_data.loc[curr_date]['up_limit']
+
+        # 以收盘价买入时，若收盘价=涨停价，即当天涨停，则买入失败
+        if self.buy_timing == 'close' and abs(curr_data['close'] - up_limit) <= 0.05:
+            return True
+
+        # 开盘价=最低价，收盘价=最高价，即当天一字涨停，则买入失败
+        if curr_data['open'] == curr_data['low'] and curr_data['close'] == curr_data['high']:
+            return True
+
+        return False
+
+    def _can_sell(
+            self,
+            stock_code,
+            curr_date: str,
+            curr_data: Series,
+    ) -> bool:
+        """
+        判断是否可以卖出。若跌停板，则无法卖出
+        可以卖出，则返回False
+        """
+        return True  # todo
+
+        limit_data = reader.get_stk_limit()
+        down_limit = limit_data.loc[curr_date]['down_limit']
+
+        # 收盘价=跌停价，当天跌停
+        if abs(curr_data['close'] - down_limit) <= 0.05:
+            return True
+
+        # 开盘价=最高价，收盘价=最低价：当天一字跌停
+        if curr_data['open'] == curr_data['high'] and curr_data['close'] == curr_data['low']:
+            return True
+
+        return False
+
+    def _backtest_buy_stock(self, curr_date):
+        """
+        # 逐个遍历股票，进行买入操作
+        """
+        for stock_code in self.stock_code_list:
+            if curr_date == self.last_date:  # 最后一天不再买入股票
+                continue
+
+            daily_data, data = self._read_data(stock_code, curr_date)
+
+            if stock_code in self.abnormal_stock_code_list:  # 异常股票，不参与回测计算
+                continue
+
+            if daily_data.loc[curr_date]['index'] <= 2:  # 从第三天正式开始，因为买入要参考前一天的数据
+                continue
+
+            buy_price: float  # 买入价格
+            prev_data: DataFrame  # 昨日数据
+            curr_data: DataFrame  # 今日数据
+            if self.buy_timing == 'open':  # 以开盘价买入，即符合条件后，第二天才买入。
+                buy_price = daily_data.loc[curr_date]['open']
+                prev_data = data[data['index'] == (data.loc[curr_date]['index'] - 2)]
+                prev_data = prev_data.iloc[0]
+                curr_data = data[data['index'] == (data.loc[curr_date]['index'] - 1)]
+                curr_data = curr_data.iloc[0]
+            elif self.buy_timing == 'close':  # 以收盘价买入，即符合条件后，当天就买入。
+                buy_price = daily_data.loc[curr_date]['close']
+                prev_data = data[data['index'] == (data.loc[curr_date]['index'] - 1)]
+                prev_data = prev_data.iloc[0]
+                curr_data = data.loc[curr_date]
+            else:
+                raise RuntimeError("不支持的buy_timing:%s" % self.buy_timing)
+
+            # 求买入的仓位比例
+            buy_ratio = self.buy_strategy(data,
+                                          curr_date,
+                                          prev_data=prev_data,
+                                          curr_data=curr_data,
+                                          dto=self.record.get_stock_dto(stock_code),
+                                          stock_code=stock_code)
+
+            if buy_ratio <= 0:
+                # 不满足买入条件
+                continue
+
+            # 若当天涨停，则买入失败
+            if not self._can_buy(stock_code, curr_date, daily_data.loc[curr_date]):  # 当天涨停，买入失败
+                continue
+
+            # 计算当前总金额
+            total_money = self.record.get_total_money()
+
+            # 本次预计花费
+            curr_cost = buy_ratio * total_money
+            # 买入股票
+            buy_number = self.record.buy_stock(stock_code, curr_cost, buy_price, self.trade_days)
+            self.buy_action_list.append([stock_code, curr_date, buy_number])
+
+    def _backtest_sell_stock(self, curr_date):
+        """
+        # 逐个遍历已经持仓的股票，进行卖出操作
+        """
+        for stock_code, dto in self.record.positions.items():
+            if dto.n_shares <= 0:  # 该股票已经不持仓了
+                continue
+
+            if stock_code in self.abnormal_stock_code_list:  # 异常股票，不参与回测计算
+                continue
+
+            daily_data, data = self._read_data(stock_code, curr_date)
+
+            if curr_date != self.last_date:
+                sell_ratio = self.sell_strategy(data,
+                                                data.loc[curr_date],
+                                                dto,
+                                                )
+            else:  # 最后一天卖出所有股票
+                sell_ratio = 1.
+
+            if sell_ratio <= 0:
+                # 不满足卖出条件
+                continue
+
+            close_price = daily_data.loc[curr_date]['close']  # 当天收盘价。注：以收盘价作为卖出价
+
+            # 若当天跌停，则卖出失败
+            if not self._can_sell(stock_code, curr_date, daily_data.loc[curr_date]):
+                continue
+
+            # 卖出股票
+            sell_number = self.record.sell_stock(stock_code, sell_ratio, close_price)
+
+            self.buy_action_list.append([stock_code, curr_date, -sell_number])
+
+    def _check_buy_action(self, ):
+        """
+        根据购买行为判断代码是否存在bug
+        """
+        stock_number_map = {}
+        for stock_code, trade_date, number in self.buy_action_list:
+            if stock_code not in stock_number_map:
+                stock_number_map[stock_code] = 0
+
+            stock_number_map[stock_code] += number
+
+            if stock_number_map[stock_code] < 0:
+                raise RuntimeError("代码存在bug，股票数量为负")
+
+        for stock_code, number in stock_number_map.items():
+            if number != 0:
+                raise RuntimeError("代码存在bug，最终股票数量不为0")
+
+    def compute_hold_days(self, ):
+        """
+        根据购买行为分析平局持仓时间
+        """
+        hold_days_list = []
+
+        buy_action_list = copy.deepcopy(self.buy_action_list)
+        for i in range(len(buy_action_list)):
+            stock_code, trade_date, number = buy_action_list[i]
+            if number >= 0:
+                # 买入行为，跳过。继续往后找卖出行为
+                continue
+
+            sell_number = number
+            # 发现卖出行为，从前往后找，找到该股票最早的买入记录，然后记录持股时间
+            for j in range(0, i):
+                _stock_code, _trade_date, buy_number = buy_action_list[j]
+                if stock_code != _stock_code:
+                    continue
+
+                if buy_number < 0:
+                    raise RuntimeError("有bug")
+
+                if buy_number == 0:  # 该买入记录已被平仓
+                    continue
+
+                diff = abs(sell_number)  # 计划平仓份数：卖出的份数
+                if buy_number < diff:  # 但本次数量不够平仓
+                    diff = buy_number  # 本次平仓的数量
+
+                # 发现之前的交易记录，平仓
+                sell_number += diff
+                buy_number -= diff
+                buy_action_list[i][2] = sell_number
+                buy_action_list[j][2] = buy_number
+
+                hold_days_list.append(date_diff(buy_action_list[i][1], buy_action_list[j][1]))  # 记录持股时间
+
+                if sell_number > 0:
+                    raise RuntimeError("有bug")
+
+                if buy_number < 0:
+                    raise RuntimeError("有bug")
+
+                if sell_number == 0:  # 已平仓，不需要再往后找了
+                    break
+
+            # 如果平仓结束后，卖出数量不为0，则说明有bug
+            if buy_action_list[i][2] != 0:
+                raise RuntimeError("有bug")
+
+        for action in buy_action_list:
+            if action[2] != 0:
+                raise RuntimeError("有bug")
+
+        return sum(hold_days_list) / (len(hold_days_list) + 0.00001)  # 平均持股时间
+
+    def _check_log(self, ):
+        """
+        分析log日志，看看程序有没有bug。
+
+        日志应符合以下等式：
+        最终资金 - 初始资金 = sum(收入明细) - sum(花费明细)
+        """
+
+        total_cost = 0.
+        total_earn = 0.
+        init_money = 0.
+        final_money = 0.
+        total_sell = 0.
+        total_buy = 0.
+
+        with open(ROOT / 'log' / f"{log_filename}.log", encoding='utf-8') as f:
+            lines = f.readlines()
+
+        for line in lines:
+            if '收入' in line:
+                total_earn += float(re.findall('收入[0-9.]+元', line)[0].replace('收入', '').replace('元', ''))
+                total_sell += int(re.findall('股票[0-9]+股', line)[0].replace('股票', "").replace("股", ""))
+
+            if '花费' in line:
+                total_cost += float(re.findall('花费[0-9.]+元', line)[0].replace('花费', '').replace('元', ''))
+                total_buy += int(re.findall('股票[0-9]+股', line)[0].replace('股票', "").replace("股", ""))
+
+            if '初始资金' in line:
+                init_money = float(re.findall('初始资金：[0-9.]+,', line)[0].replace('初始资金：', '').replace(',', ''))
+                final_money = float(re.findall('最终资金: [0-9.]+,', line)[0].replace('最终资金: ', '').replace(',', ''))
+
+        if not abs((final_money - init_money) - (total_earn - total_cost)) <= 0.1:
+            raise RuntimeError("最终资金 - 初始资金 = sum(收入明细) - sum(花费明细) 不成立，可能是代码出bug了，请检查！")
+
+        if total_buy != total_sell:
+            raise RuntimeError("总卖出股数 != 总买入股数，可能是代码出bug了，请检查！")
+
+    def do(self):
+        print("开始进行回测计算")
+        for curr_date in tqdm(self.date_list, desc="Backtest"):
+            fprint(curr_date, ":")
+
+            if not DataReader.is_trading_day(curr_date):
+                fprint("非交易日")
+                fprint('-' * 20)
+                continue
+
+            self.trade_days += 1
+
+            # 逐个遍历已经持仓的股票，进行卖出操作
+            self._backtest_sell_stock(curr_date)
+
+            # 逐个遍历股票，进行买入操作
+            self._backtest_buy_stock(curr_date)
+
+            self.idle_money_list.append(self.record.ready_money)
+
+            fprint('-' * 20)
+
+            if curr_date == self.last_date:
+                break
+
+        # 最后结束的时候卖出所有股票。
+        fprint("回测结束，结果如下：")
+        profit_rate = (self.record.ready_money - self.init_money) / self.init_money * 100
+        fprint(f"初始资金：{self.init_money}, 最终资金: {self.record.ready_money}, 收益率: {profit_rate}")
+
+        # 计算同期沪深300指数
+        _, _, market_profit_rate = analysis_index('000300.SH', self.start_date, self.last_date)
+        fprint("同期沪深300：", market_profit_rate)
+
+        success_rate = round(
+            100 * self.record.success_times / (self.record.success_times + self.record.fail_times + 0.00001), 2)
+        fprint(f"出手次数: {self.record.bug_frequency}，成功次数: {self.record.success_times}，"
+               f"失败次数: {self.record.fail_times}，成功率: {success_rate}%", )
+
+        idle_money = sum(self.idle_money_list) / len(self.idle_money_list)
+        fprint(f"平均每日闲置资金: {idle_money}")
+
+        self._check_buy_action()
+        avg_hold_days = self.compute_hold_days()
+
+        fprint(f"平均持仓时间: {avg_hold_days}天")
+
+        self._check_log()
+
+        result = {
+            "初始资金": "%.2fw" % (self.init_money / 10000),
+            "结束资金": "%.2fw" % round(self.record.ready_money / 10000, 2),
+            "收益率": "%.2f%%" % round(profit_rate, 2),
+            "同期沪深300": "%.2f%%" % round(market_profit_rate, 2),
+            "出手次数": self.record.bug_frequency,
+            "成功次数": self.record.success_times,
+            "失败次数": self.record.fail_times,
+            "成功率": "%.2f%%" % success_rate,
+            "平均每日闲置资金": round(idle_money, 2),
+            "平均持仓时间": f"{int(avg_hold_days)}天",
+        }
+
+        print(result)
+
+        return result
 
 
-def _can_buy(
-        reader: TuShareDataReader,
-        curr_date: str,  # 当天日期
-        curr_data: Series,  # 当天数据
-        buy_timing: str,  # 买入方式
-) -> bool:
+def backtest(
+        init_money: float,  # 初始资金
+        start_date: str,  # 开始时间，即从哪天开始模拟。format: %Y-%m-%d
+        days: int,  # 持续多少天，时间到之后会立即卖出所有股票。非交易日也被算在内，因此可以用365天表示一年
+        buy_strategy,  # 买入策略
+        sell_strategy,  # 卖出策略
+        require_data=('daily',),  # 本次回测的购买决策都需要用到哪些数据。
+        buy_timing: str = 'open',  # 买入时机；开盘买入：open，收盘买入：close
+        random_stock_list=False,  # 随机选取股票买入，而不是按照现有的股票顺序遍历。
+        debug_limit=-1,  # debug模式，-1表示不开启，10表示只看前10个股票
+):
     """
-    判断是否可以买入
+    回测，即根据用户指定的策略进行模拟交易，看看最后自己的盈利情况。
     """
-    limit_data = reader.get_stk_limit()
-    up_limit = limit_data.loc[curr_date]['up_limit']
 
-    # 以收盘价买入时，若收盘价=涨停价，即当天涨停，则买入失败
-    if buy_timing == 'close' and abs(curr_data['close'] - up_limit) <= 0.05:
-        return True
+    class CommonBacktest(Backtest):
 
-    # 开盘价=最低价，收盘价=最高价，即当天一字涨停，则买入失败
-    if curr_data['open'] == curr_data['low'] and curr_data['close'] == curr_data['high']:
-        return True
+        def buy_strategy(self, data, curr_date, prev_data, curr_data, dto, stock_code) -> float:
+            return buy_strategy(data, curr_date, prev_data, curr_data, dto, stock_code)
 
-    return False
+        def sell_strategy(self, data, param, dto) -> float:
+            return sell_strategy(data, param, dto, self.trade_days)
 
+        def _require_data(self):
+            return require_data
 
-def _is_limit_down(
-        reader: TuShareDataReader,
-        curr_date: str,
-        curr_data: Series,
-) -> bool:
-    """
-    判断是否是跌停板
-    """
-    limit_data = reader.get_stk_limit()
-    down_limit = limit_data.loc[curr_date]['down_limit']
+    common_backtest = CommonBacktest(init_money=init_money,
+                                     start_date=start_date,
+                                     days=days,
+                                     buy_timing=buy_timing,
+                                     random_stock_list=random_stock_list,
+                                     debug_limit=debug_limit,
+                                     )
 
-    # 收盘价=跌停价，当天跌停
-    if abs(curr_data['close'] - down_limit) <= 0.05:
-        return True
-
-    # 开盘价=最高价，收盘价=最低价：当天一字跌停
-    if curr_data['open'] == curr_data['high'] and curr_data['close'] == curr_data['low']:
-        return True
-
-    return False
+    return common_backtest.do()
 
 
 def sell_strategy_template(
@@ -415,395 +777,6 @@ def buy_strategy_template(
 
     return random.uniform(0.1, 0.3)  # 随机买入 0%~30%的仓位
 
-
-def backtest(
-        init_money: float,  # 初始资金
-        start_date: str,  # 开始时间，即从哪天开始模拟。format: %Y-%m-%d
-        days: int,  # 持续多少天，时间到之后会立即卖出所有股票。非交易日也被算在内，因此可以用365天表示一年
-        buy_strategy,  # 买入策略
-        sell_strategy,  # 卖出策略
-        require_data=('daily',),  # 本次回测的购买决策都需要用到哪些数据。
-        buy_timing: str = 'open',  # 买入时机；开盘买入：open，收盘买入：close
-        random_stock_list=False,  # 随机选取股票买入，而不是按照现有的股票顺序遍历。
-        debug_limit=-1,  # debug模式，-1表示不开启，10表示只看前10个股票
-):
-    """
-    回测，即根据用户指定的策略进行模拟交易，看看最后自己的盈利情况。
-    """
-
-    utils.data_reader.use_pin_memory = True  # 设置缓存读取到的数据，要不太慢了
-    base.use_pin_memory = True
-
-    stock_code_list = get_all_china_stock_code_list()
-    if random_stock_list:
-        random.shuffle(stock_code_list)
-    if debug_limit > 0:
-        stock_code_list = stock_code_list[:debug_limit]
-
-    abnormal_stock_code_list = set()  # 异常股票列表，其不参与回测计算。
-
-    record = BacktestRecord(init_money)
-    trade_days = 0  # 交易日的数量
-    idle_money_list = []  # 记录每个交易日后的闲置资金
-    # 记录购买行为，例如：[('000001', '2023-01-01', +100), ('000001', '2023-01-02', +100), ...]
-    buy_action_list = []
-
-    date_list = get_future_date_list(start_date, days)
-    last_date = date_list[-1]
-    last_date = DataReader.get_last_trade_date(last_date)  # 最后一个交易日
-
-    # 先将所有的数据读取到内存
-    for stock_code in tqdm(stock_code_list, desc="Read Data"):
-        reader, _, _ = _read_data(require_data,
-                                  stock_code,
-                                  last_date,
-                                  start_date,
-                                  last_date,
-                                  record,
-                                  abnormal_stock_code_list,
-                                  buy_action_list)
-
-        if reader is None:
-            continue
-
-        _ = DataReader(stock_code).get_stk_limit()
-
-    print()
-    print("开始进行回测计算")
-    for curr_date in tqdm(date_list, desc="Backtest"):
-        fprint(curr_date, ":")
-
-        if not is_trading_day(curr_date):
-            fprint("非交易日")
-            fprint('-' * 20)
-            continue
-
-        trade_days += 1
-
-        # 逐个遍历已经持仓的股票，进行卖出操作
-        _backtest_sell_stock(abnormal_stock_code_list,
-                             curr_date,
-                             last_date,
-                             record,
-                             require_data,
-                             sell_strategy,
-                             start_date,
-                             buy_action_list,
-                             trade_days,
-                             )
-
-        # 逐个遍历股票，进行买入操作
-        _backtest_buy_stock(abnormal_stock_code_list,
-                            buy_strategy,
-                            buy_timing,
-                            curr_date,
-                            last_date,
-                            record,
-                            require_data,
-                            start_date,
-                            stock_code_list,
-                            buy_action_list,
-                            trade_days,
-                            random_stock_list,
-                            )
-
-        idle_money_list.append(record.ready_money)
-
-        fprint('-' * 20)
-
-        if curr_date == last_date:
-            break
-
-    # 最后结束的时候卖出所有股票。
-    fprint("回测结束，结果如下：")
-    profit_rate = (record.ready_money - init_money) / init_money * 100
-    fprint(f"初始资金：{init_money}, 最终资金: {record.ready_money}, 收益率: {profit_rate}")
-
-    # 计算同期沪深300指数
-    _, _, market_profit_rate = analysis_index('000300.SH', start_date, last_date)
-    fprint("同期沪深300：", market_profit_rate)
-
-    success_rate = round(100 * record.success_times / (record.success_times + record.fail_times + 0.00001), 2)
-    fprint(
-        f"出手次数: {record.bug_frequency}，成功次数: {record.success_times}，失败次数: {record.fail_times}，成功率: {success_rate}%", )
-
-    idle_money = sum(idle_money_list) / len(idle_money_list)
-    fprint(f"平均每日闲置资金: {idle_money}")
-
-    check_buy_action(buy_action_list)
-    avg_hold_days = compute_hold_days(buy_action_list)
-
-    fprint(f"平均持仓时间: {avg_hold_days}天")
-
-    # 释放缓存
-    utils.data_reader.remove_pin_memory()
-
-    check_log()
-
-    result = {
-        "初始资金": "%.2fw" % (init_money / 10000),
-        "结束资金": "%.2fw" % round(record.ready_money / 10000, 2),
-        "收益率": "%.2f%%" % round(profit_rate, 2),
-        "同期沪深300": "%.2f%%" % round(market_profit_rate, 2),
-        "出手次数": record.bug_frequency,
-        "成功次数": record.success_times,
-        "失败次数": record.fail_times,
-        "成功率": "%.2f%%" % success_rate,
-        "平均每日闲置资金": round(idle_money, 2),
-        "平均持仓时间": f"{int(avg_hold_days)}天",
-    }
-
-    print(result)
-
-    return result
-
-
-def _backtest_buy_stock(abnormal_stock_code_list,
-                        buy_strategy,
-                        buy_timing,
-                        curr_date,
-                        last_date,
-                        record,
-                        require_data,
-                        start_date,
-                        stock_code_list,
-                        buy_action_list,
-                        trade_days,
-                        random_stock_list,
-                        ):
-    if random_stock_list:
-        random.shuffle(stock_code_list)
-
-    for stock_code in stock_code_list:
-        if curr_date == last_date:  # 最后一天不再买入股票
-            continue
-
-        if stock_code in abnormal_stock_code_list:  # 异常股票，不参与回测计算
-            continue
-
-        reader, daily_data, data = _read_data(require_data,
-                                              stock_code,
-                                              curr_date,
-                                              start_date,
-                                              last_date,
-                                              record,
-                                              abnormal_stock_code_list,
-                                              buy_action_list)
-        if reader is None:
-            continue
-
-        if daily_data.loc[curr_date]['index'] <= 2:  # 从第三天正式开始，因为买入要参考前一天的数据
-            continue
-
-        buy_price: float  # 买入价格
-        prev_data: DataFrame  # 昨日数据
-        curr_data: DataFrame  # 今日数据
-        if buy_timing == 'open':  # 以开盘价买入，即符合条件后，第二天才买入。
-            buy_price = daily_data.loc[curr_date]['open']
-            prev_data = data[data['index'] == (data.loc[curr_date]['index'] - 2)]
-            prev_data = prev_data.iloc[0]
-            curr_data = data[data['index'] == (data.loc[curr_date]['index'] - 1)]
-            curr_data = curr_data.iloc[0]
-        elif buy_timing == 'close':  # 以收盘价买入，即符合条件后，当天就买入。
-            buy_price = daily_data.loc[curr_date]['close']
-            prev_data = data[data['index'] == (data.loc[curr_date]['index'] - 1)]
-            prev_data = prev_data.iloc[0]
-            curr_data = data.loc[curr_date]
-        else:
-            raise RuntimeError("不支持的buy_timing:%s" % buy_timing)
-
-        # 求买入的仓位比例
-        buy_ratio = buy_strategy(data,
-                                 curr_date,
-                                 prev_data=prev_data,
-                                 curr_data=curr_data,
-                                 dto=record.get_stock_dto(stock_code),
-                                 stock_code=stock_code)
-
-        if buy_ratio <= 0:
-            # 不满足买入条件
-            continue
-
-        # 若当天涨停，则买入失败
-        if _can_buy(reader, curr_date, daily_data.loc[curr_date], buy_timing):  # 当天涨停，买入失败
-            continue
-
-        # 计算当前总金额
-        total_money = record.get_total_money()
-
-        # 本次预计花费
-        curr_cost = buy_ratio * total_money
-        # 买入股票
-        buy_number = record.buy_stock(stock_code, curr_cost, buy_price, trade_days)
-        buy_action_list.append([stock_code, curr_date, buy_number])
-
-
-def _backtest_sell_stock(abnormal_stock_code_list,
-                         curr_date,
-                         last_date,
-                         record,
-                         require_data,
-                         sell_strategy,
-                         start_date,
-                         buy_action_list,
-                         trade_days,
-                         ):
-    for stock_code, dto in record.positions.items():
-        if dto.n_shares <= 0:  # 该股票已经不持仓了
-            continue
-
-        if stock_code in abnormal_stock_code_list:  # 异常股票，不参与回测计算
-            continue
-
-        reader, daily_data, data = _read_data(require_data,
-                                              stock_code,
-                                              curr_date,
-                                              start_date,
-                                              last_date,
-                                              record,
-                                              abnormal_stock_code_list,
-                                              buy_action_list)
-        if reader is None:
-            continue
-
-        if curr_date != last_date:
-            sell_ratio = sell_strategy(data,
-                                       data.loc[curr_date],
-                                       dto,
-                                       trade_days,
-                                       )
-        else:  # 最后一天卖出所有股票
-            sell_ratio = 1.
-
-        if sell_ratio <= 0:
-            # 不满足卖出条件
-            continue
-
-        close_price = daily_data.loc[curr_date]['close']  # 当天收盘价。注：以收盘价作为卖出价
-
-        # 若当天跌停，则卖出失败
-        if _is_limit_down(reader, curr_date, daily_data.loc[curr_date]):
-            continue
-
-        # 卖出股票
-        sell_number = record.sell_stock(stock_code, sell_ratio, close_price)
-
-        buy_action_list.append([stock_code, curr_date, -sell_number])
-
-
-def compute_hold_days(_buy_action_list):
-    """
-    根据购买行为分析平局持仓时间
-    """
-    hold_days_list = []
-
-    buy_action_list = copy.deepcopy(_buy_action_list)
-    for i in range(len(buy_action_list)):
-        stock_code, trade_date, number = buy_action_list[i]
-        if number >= 0:
-            # 买入行为，跳过。继续往后找卖出行为
-            continue
-
-        sell_number = number
-        # 发现卖出行为，从前往后找，找到该股票最早的买入记录，然后记录持股时间
-        for j in range(0, i):
-            _stock_code, _trade_date, buy_number = buy_action_list[j]
-            if stock_code != _stock_code:
-                continue
-
-            if buy_number < 0:
-                raise RuntimeError("有bug")
-
-            if buy_number == 0:  # 该买入记录已被平仓
-                continue
-
-            diff = abs(sell_number)  # 计划平仓份数：卖出的份数
-            if buy_number < diff:  # 但本次数量不够平仓
-                diff = buy_number  # 本次平仓的数量
-
-            # 发现之前的交易记录，平仓
-            sell_number += diff
-            buy_number -= diff
-            buy_action_list[i][2] = sell_number
-            buy_action_list[j][2] = buy_number
-
-            hold_days_list.append(date_diff(buy_action_list[i][1], buy_action_list[j][1]))  # 记录持股时间
-
-            if sell_number > 0:
-                raise RuntimeError("有bug")
-
-            if buy_number < 0:
-                raise RuntimeError("有bug")
-
-            if sell_number == 0:  # 已平仓，不需要再往后找了
-                break
-
-        # 如果平仓结束后，卖出数量不为0，则说明有bug
-        if buy_action_list[i][2] != 0:
-            raise RuntimeError("有bug")
-
-    for action in buy_action_list:
-        if action[2] != 0:
-            raise RuntimeError("有bug")
-
-    return sum(hold_days_list) / (len(hold_days_list) + 0.00001)  # 平均持股时间
-
-
-def check_buy_action(buy_action_list):
-    """
-    根据购买行为判断代码是否存在bug
-    """
-    stock_number_map = {}
-    for stock_code, trade_date, number in buy_action_list:
-        if stock_code not in stock_number_map:
-            stock_number_map[stock_code] = 0
-
-        stock_number_map[stock_code] += number
-
-        if stock_number_map[stock_code] < 0:
-            raise RuntimeError("代码存在bug，股票数量为负")
-
-    for stock_code, number in stock_number_map.items():
-        if number != 0:
-            raise RuntimeError("代码存在bug，最终股票数量不为0")
-
-
-def check_log():
-    """
-    分析log日志，看看程序有没有bug。
-
-    日志应符合以下等式：
-    最终资金 - 初始资金 = sum(收入明细) - sum(花费明细)
-    """
-
-    total_cost = 0.
-    total_earn = 0.
-    init_money = 0.
-    final_money = 0.
-    total_sell = 0.
-    total_buy = 0.
-
-    with open(ROOT / 'log' / f"{log_filename}.log", encoding='utf-8') as f:
-        lines = f.readlines()
-
-    for line in lines:
-        if '收入' in line:
-            total_earn += float(re.findall('收入[0-9.]+元', line)[0].replace('收入', '').replace('元', ''))
-            total_sell += int(re.findall('股票[0-9]+股', line)[0].replace('股票', "").replace("股", ""))
-
-        if '花费' in line:
-            total_cost += float(re.findall('花费[0-9.]+元', line)[0].replace('花费', '').replace('元', ''))
-            total_buy += int(re.findall('股票[0-9]+股', line)[0].replace('股票', "").replace("股", ""))
-
-        if '初始资金' in line:
-            init_money = float(re.findall('初始资金：[0-9.]+,', line)[0].replace('初始资金：', '').replace(',', ''))
-            final_money = float(re.findall('最终资金: [0-9.]+,', line)[0].replace('最终资金: ', '').replace(',', ''))
-
-    if not abs((final_money - init_money) - (total_earn - total_cost)) <= 0.1:
-        raise RuntimeError("最终资金 - 初始资金 = sum(收入明细) - sum(花费明细) 不成立，可能是代码出bug了，请检查！")
-
-    if total_buy != total_sell:
-        raise RuntimeError("总卖出股数 != 总买入股数，可能是代码出bug了，请检查！")
 
 
 def multi_backtest(

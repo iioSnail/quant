@@ -171,6 +171,10 @@ def get_results(stock_code,
                 remove_2015=True,  # 是否去除2015年数据（2015-01-01~2015-10-01）
                 remove_continual=False,  # 是否去除连续数据。（例如：2023-01-01,2023-01-02,2023-01-03，仅保留2023-01-01）
                 ):
+    if not print_result:
+        global fprint
+        fprint.console= False
+
     pt = None
 
     results = []
@@ -592,7 +596,7 @@ def analysis_index(ts_code: str,  # 指数的ts_code
                    end_date: str,  # 结束日期 %Y-%m-%d，以当天的收盘价为准
                    ):
     """
-    分析指数收益。
+    分析指数收益。 Fixme
 
     :return: (
                 start_price,  # 买入价
